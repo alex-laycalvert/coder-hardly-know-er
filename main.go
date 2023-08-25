@@ -13,10 +13,8 @@ type Position struct {
 }
 
 const (
-	NORMAL  = iota
-	INSERT  = iota
-	REPLACE = iota
-	VISUAL  = iota
+	Normal = iota
+	Insert = iota
 )
 
 func main() {
@@ -27,30 +25,39 @@ func main() {
 	checkError(err)
 	normalStyle := tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(tcell.ColorWhite)
 	insertStyle := tcell.StyleDefault.Background(tcell.ColorWhite).Foreground(tcell.ColorBlack).Blink(true)
-	mode := NORMAL
+	mode := Normal
 	style := normalStyle
 	lines := []string{""}
+	sideBarLen := 1 + len(fmt.Sprintf("%v", len(lines)-1))
 	col := 0
 	row := 0
+	cols, rows := scr.Size()
 	for {
-		if mode == NORMAL {
+		sideBarLen = 1 + len(fmt.Sprintf("%v", len(lines)))
+		if mode == Normal {
 			style = normalStyle
-		} else if mode == INSERT {
+		} else if mode == Insert {
 			style = insertStyle
 		}
-		scr.Clear()
-		cols, rows := scr.Size()
-		for r, l := range lines {
-			drawText(scr, 0, r, style, l)
+		// scr.Clear()
+		for r := 0; r < rows; r++ {
+			for c := 0; c < cols; c++ {
+				scr.SetContent(c, r, ' ', nil, tcell.StyleDefault.Background(tcell.ColorBlack))
+			}
 		}
-		scr.ShowCursor(col, row)
+		cols, rows = scr.Size()
+		for r, l := range lines {
+			drawText(scr, 0, r, tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(tcell.ColorBlue), fmt.Sprintf("%v", r))
+			drawText(scr, sideBarLen, r, style, l)
+		}
+		scr.ShowCursor(col+sideBarLen, row)
 		scr.Show()
 		ev := scr.PollEvent()
 		switch ev := ev.(type) {
 		case *tcell.EventResize:
 			scr.Sync()
 		case *tcell.EventKey:
-			if mode == NORMAL {
+			if mode == Normal {
 				if ev.Key() == tcell.KeyCtrlC {
 					quit(scr)
 				}
@@ -58,30 +65,68 @@ func main() {
 					col -= 1
 				}
 				if ev.Rune() == 'j' {
-					row += 1
-					if len(lines) <= row {
-						lines = append(lines, "")
+					if len(lines) > row+1 {
+						row += 1
+						if len(lines) <= row {
+							lines = append(lines, "")
+						}
+						col = min(len(lines[row]), col)
 					}
-					col = min(len(lines[row]), col)
 				}
 				if ev.Rune() == 'k' {
-					row -= 1
-					col = min(len(lines[row]), col)
+					row--
+					if row >= 0 {
+						col = min(len(lines[row]), col)
+					}
 				}
 				if ev.Rune() == 'l' {
-					col += 1
+					col++
+					if col > len(lines[row]) {
+						col = len(lines[row])
+					}
 				}
 				if ev.Rune() == 'i' {
-					mode = INSERT
-					col = len(lines[row]) - 1
+					mode = Insert
 				}
-			} else if mode == INSERT {
-				if ev.Key() == tcell.KeyEscape {
-					mode = NORMAL
-				} else if ev.Key() == tcell.KeyEnter {
+				if ev.Rune() == 'a' {
+					mode = Insert
+					col++
+					if col > len(lines[row]) {
+						lines[row] += " "
+					}
+				}
+				if ev.Rune() == 'I' {
+					mode = Insert
+					col = 0
+				}
+				if ev.Rune() == 'A' {
+					mode = Insert
+					col = len(lines[row])
+				}
+				if ev.Rune() == 'o' {
+					mode = Insert
+					col = 0
 					lines = append(lines, "")
 					row++
+					copy(lines[row+1:], lines[row:])
+					lines[row] = ""
+				}
+				if ev.Rune() == 'O' {
+					mode = Insert
 					col = 0
+					lines = append(lines, "")
+					copy(lines[row+1:], lines[row:])
+					lines[row] = ""
+				}
+			} else if mode == Insert {
+				if ev.Key() == tcell.KeyEscape {
+					mode = Normal
+				} else if ev.Key() == tcell.KeyEnter {
+					row++
+					col = 0
+					lines = append(lines, "")
+					copy(lines[row:], lines[row-1:])
+					lines[row] = ""
 				} else if ev.Key() == tcell.KeyBackspace2 {
 					if len(lines[row]) > 0 {
 						lines[row] = lines[row][0 : len(lines[row])-1]
@@ -91,8 +136,39 @@ func main() {
 						row--
 						col = len(lines[row])
 					}
+				} else if ev.Key() == tcell.KeyCtrlW {
+					length := len(lines[row])
+					if length == 0 {
+						row--
+						if row >= 0 {
+							col = len(lines[row])
+						}
+					} else {
+						foundChar := false
+						for i := length - 1; i >= 0; i-- {
+							if lines[row][i] != ' ' && !foundChar {
+								foundChar = true
+							}
+							if lines[row][i] == ' ' && foundChar {
+								lines[row] = lines[row][0 : i+1]
+								col = len(lines[row])
+								break
+							}
+							if i == 0 {
+								lines[row] = ""
+								col = 0
+							}
+						}
+					}
+				} else if ev.Key() == tcell.KeyTab {
+					lines[row] += "    "
+					col += 4
 				} else {
-					lines[row] += string(ev.Rune())
+					if len(lines[row]) == 0 {
+						lines[row] += string(ev.Rune())
+					} else {
+						lines[row] = lines[row][:col] + string(ev.Rune()) + lines[row][col:]
+					}
 					col += 1
 				}
 			}
